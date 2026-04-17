@@ -27,10 +27,14 @@ async def scrape(city: str, term: str, limit: int):
             await page.mouse.wheel(0, 1800)
             await page.wait_for_timeout(900)
 
-        cards = await page.query_selector_all('a[href^="https://www.google.com/maps/place"]')
+        # Collect listing URLs as plain strings (avoid ElementHandle invalidation on navigation)
+        hrefs = await page.eval_on_selector_all(
+            'a[href^="https://www.google.com/maps/place"]',
+            'els => Array.from(new Set(els.map(e => e.href).filter(Boolean)))'
+        )
+
         seen = set()
-        for a in cards:
-            href = await a.get_attribute('href')
+        for href in hrefs:
             if not href or href in seen:
                 continue
             seen.add(href)
