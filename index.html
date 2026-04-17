@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual Mode Sites — No-Website Leads</title>
+  <style>
+    :root{--bg:#0b0f19;--card:#121a2b;--text:#eaf0ff;--muted:#9fb0d0;--accent:#7c6af7;--border:rgba(255,255,255,.08)}
+    *{box-sizing:border-box} body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Inter,Roboto,Arial;background:radial-gradient(1200px 600px at 20% 10%, rgba(124,106,247,.25), transparent 60%), var(--bg);color:var(--text)}
+    header{padding:22px 18px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(11,15,25,.85);backdrop-filter:blur(10px);z-index:10}
+    .wrap{max-width:1100px;margin:0 auto}
+    h1{margin:0;font-size:18px;letter-spacing:.4px}
+    .sub{margin-top:6px;color:var(--muted);font-size:13px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+    input{flex:1;min-width:220px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
+    .btn{background:linear-gradient(135deg,var(--accent),#4dd3ff);border:none;color:#081021;font-weight:700;padding:10px 12px;border-radius:12px;cursor:pointer}
+    main{padding:18px}
+    .card{background:rgba(18,26,43,.72);border:1px solid var(--border);border-radius:16px;padding:14px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{padding:10px;border-bottom:1px solid var(--border);vertical-align:top}
+    th{color:var(--muted);font-weight:600;text-align:left;font-size:12px;letter-spacing:.4px;text-transform:uppercase}
+    a{color:#9cd3ff;text-decoration:none}
+    a:hover{text-decoration:underline}
+    .pill{display:inline-block;padding:4px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Manual Mode Sites — No‑Website Leads</h1>
+    <div class="sub">Businesses scraped from Google Maps with no website found. Click the Maps link to open the profile.</div>
+    <div class="row">
+      <input id="q" placeholder="Search (name, city, term)…" />
+      <button class="btn" id="reload">Reload</button>
+      <span class="pill" id="count">0 leads</span>
+    </div>
+  </div>
+</header>
+<main>
+  <div class="wrap">
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Business</th>
+            <th>Phone</th>
+            <th>City</th>
+            <th>Term</th>
+            <th>Maps</th>
+            <th>Added</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+<script>
+  async function load(){
+    const res = await fetch('data/leads.json?_=' + Date.now());
+    const leads = await res.json();
+    return leads;
+  }
+  function render(leads){
+    const q = (document.getElementById('q').value||'').toLowerCase().trim();
+    const filtered = !q ? leads : leads.filter(l => (
+      (l.name||'') + ' ' + (l.city||'') + ' ' + (l.term||'')
+    ).toLowerCase().includes(q));
+
+    document.getElementById('count').textContent = `${filtered.length} leads`;
+    const rows = document.getElementById('rows');
+    rows.innerHTML = filtered.map(l => `
+      <tr>
+        <td><b>${escapeHtml(l.name||'')}</b></td>
+        <td>${escapeHtml(l.phone||'')}</td>
+        <td>${escapeHtml(l.city||'')}</td>
+        <td>${escapeHtml(l.term||'')}</td>
+        <td>${l.maps_url ? `<a href="${l.maps_url}" target="_blank" rel="noopener">Open</a>` : ''}</td>
+        <td>${escapeHtml(l.added_at||'')}</td>
+      </tr>
+    `).join('');
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  let CACHE=[];
+  async function boot(){
+    CACHE = await load();
+    render(CACHE);
+  }
+  document.getElementById('q').addEventListener('input', () => render(CACHE));
+  document.getElementById('reload').addEventListener('click', boot);
+  boot();
+</script>
+</body>
+</html>
