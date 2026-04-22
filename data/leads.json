@@ -54,5 +54,61 @@
     "term": "pressure washing",
     "maps_url": "https://www.google.com/maps/place/Bow+Tie+Power+Washing/data=!4m7!3m6!1s0x5371714f172d3687:0xb21680e3f7d8da2d!8m2!3d50.9585533!4d-114.0917337!16s%2Fg%2F11c45vh2df!19sChIJhzYtF09xcVMRLdrY9-OAFrI?authuser=0&hl=en&rclk=1",
     "added_at": "2026-04-21T20:08:50.863734Z"
+  },
+  {
+    "name": "CleanCarCo Car Detailing",
+    "phone": "(403) 617-2528",
+    "city": "Calgary, AB",
+    "term": "car detailing",
+    "maps_url": "https://www.google.com/maps/place/CleanCarCo+Car+Detailing/data=!4m7!3m6!1s0x53716915a74e16bd:0xc4d2534c3721fd92!8m2!3d51.1252794!4d-114.198845!16s%2Fg%2F11yxlbqp0n!19sChIJvRZOpxVpcVMRkv0hN0xT0sQ?authuser=0&hl=en&rclk=1",
+    "added_at": "2026-04-22T17:55:47.507306Z"
+  },
+  {
+    "name": "Busy Bee Car Detailing",
+    "phone": "(587) 586-1866",
+    "city": "Calgary, AB",
+    "term": "car detailing",
+    "maps_url": "https://www.google.com/maps/place/Busy+Bee+Car+Detailing/data=!4m7!3m6!1s0x5371692b709327d9:0xf1561afc62f25e65!8m2!3d51.1202104!4d-114.1566767!16s%2Fg%2F11kj4tpf90!19sChIJ2SeTcCtpcVMRZV7yYvwaVvE?authuser=0&hl=en&rclk=1",
+    "added_at": "2026-04-22T17:56:00.728183Z"
+  },
+  {
+    "name": "EMPOWERHERX BY ESTEPHANIE",
+    "phone": "(236) 313-4001",
+    "city": "Calgary, AB",
+    "term": "personal trainer",
+    "maps_url": "https://www.google.com/maps/place/EMPOWERHERX+BY+ESTEPHANIE/data=!4m7!3m6!1s0x53716989155b4e99:0x3a46918b066c9767!8m2!3d51.1536433!4d-114.2158091!16s%2Fg%2F11w43r5tt8!19sChIJmU5bFYlpcVMRZ5dsBouRRjo?authuser=0&hl=en&rclk=1",
+    "added_at": "2026-04-22T18:02:01.021387Z"
+  },
+  {
+    "name": "Kim's Massage therapy",
+    "phone": "(403) 860-5785",
+    "city": "Calgary, AB",
+    "term": "massage therapy",
+    "maps_url": "https://www.google.com/maps/place/Kim%27s+Massage+therapy/data=!4m7!3m6!1s0x537169f38054569d:0x6d75f460c92ebc95!8m2!3d51.1322467!4d-114.2461846!16s%2Fg%2F11q3qykr87!19sChIJnVZUgPNpcVMRlbwuyWD0dW0?authuser=0&hl=en&rclk=1",
+    "added_at": "2026-04-22T18:02:29.230785Z"
+  },
+  {
+    "name": "Mma\u2019s Beauty",
+    "phone": "(587) 707-5805",
+    "city": "Calgary, AB",
+    "term": "hair braiding",
+    "maps_url": "https://www.google.com/maps/place/Mma%E2%80%99s+Beauty/data=!4m7!3m6!1s0x5371651eeca3afbd:0xbdfe2c0bdb53dabc!8m2!3d51.0707443!4d-114.1279599!16s%2Fg%2F11k06n_5m4!19sChIJva-j7B5lcVMRvNpT2wss_r0?authuser=0&hl=en&rclk=1",
+    "added_at": "2026-04-22T18:03:39.010202Z"
+  },
+  {
+    "name": "Joyces Braiding & Hair",
+    "phone": "(403) 230-2440",
+    "city": "Calgary, AB",
+    "term": "hair braiding",
+    "maps_url": "https://www.google.com/maps/place/Joyces+Braiding+%26+Hair/data=!4m7!3m6!1s0x5371656f8ad8a8b1:0x72845d0c2f7b5187!8m2!3d51.081714!4d-114.0608335!16s%2Fg%2F1tjcp39r!19sChIJsajYim9lcVMRh1F7LwxdhHI?authuser=0&hl=en&rclk=1",
+    "added_at": "2026-04-22T18:03:41.228541Z"
+  },
+  {
+    "name": "Lady Icy Braiding & Hair Extension & Beauty Salon",
+    "phone": "(403) 457-0522",
+    "city": "Calgary, AB",
+    "term": "hair braiding",
+    "maps_url": "https://www.google.com/maps/place/Lady+Icy+Braiding+%26+Hair+Extension+%26+Beauty+Salon/data=!4m7!3m6!1s0x53717ae4fdc1b1d1:0x3ae8ee97a15bc88c!8m2!3d51.002033!4d-114.0683101!16s%2Fg%2F11b6f0tsth!19sChIJ0bHB_eR6cVMRjMhboZfu6Do?authuser=0&hl=en&rclk=1",
+    "added_at": "2026-04-22T18:03:43.497248Z"
   }
 ]

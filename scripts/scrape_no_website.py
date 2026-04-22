@@ -66,10 +66,23 @@ async def scrape(city: str, term: str, limit: int):
                     m = PHONE_RE.search(txt)
                     if m:
                         phone = m.group(0)
-            except: pass
+            except:
+                pass
+
+            # Fallback: scan the listing panel text for a phone pattern
+            if not phone:
+                try:
+                    body_txt = await page.inner_text('body')
+                    m = PHONE_RE.search(body_txt)
+                    if m:
+                        phone = m.group(0)
+                except:
+                    pass
 
             if website:
                 continue  # we only keep no-website
+            if not phone:
+                continue  # strict: must have an actual phone number to call
 
             leads.append({
                 "name": name,
