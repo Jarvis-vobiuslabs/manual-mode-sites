@@ -169,10 +169,10 @@
     return leads;
   }
 
-  // Shared storage via Google Sheets (Apps Script Web App)
-  // Configure by setting SCRIPT_URL + TEAM_KEY in the UI (saved on device).
+  // Shared storage via Mission Control server (through existing cloudflared tunnel)
+  // Configure by setting MC_BASE_URL + TEAM_KEY in the UI (saved on device).
   const STORE_KEY = 'manual_mode_store_v3';
-  const CONFIG_KEY = 'manual_mode_config_v1';
+  const CONFIG_KEY = 'manual_mode_config_v2';
   let STORE = {}; // key -> {state, meeting_at, website_url, updated_at}
 
   function loadConfig(){
@@ -182,8 +182,8 @@
     localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
   }
 
-  function getScriptUrl(){
-    return (loadConfig().scriptUrl || '').trim();
+  function getMcBaseUrl(){
+    return (loadConfig().mcBaseUrl || '').trim().replace(/\/$/, '');
   }
   function getTeamKey(){
     return (loadConfig().teamKey || '').trim();
@@ -208,48 +208,58 @@
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(STORE)); }catch(e){}
   }
 
-  async function apiFetch(path, options){
-    const base = getScriptUrl();
-    const key = getTeamKey();
-    if (!base || !key) throw new Error('Missing SCRIPT_URL or TEAM_KEY');
-    const url = new URL(base);
-    url.searchParams.set('key', key);
-    url.searchParams.set('path', path);
-    return fetch(url.toString(), options);
+  function getApiBase(){
+    // Use MC tunnel base URL (e.g. https://xxxx.trycloudflare.com)
+    return (getScriptUrl() || '').replace(/\/$/, '');
   }
 
-  async function syncFromSheet(){
-    const base = getScriptUrl();
+  async function apiGet(path){
+    const base = getApiBase();
     const key = getTeamKey();
-    if (!base || !key) return; // not configured
-    const res = await apiFetch('list', { method: 'GET' });
+    if (!base || !key) throw new Error('Missing server URL or TEAM_KEY');
+    const url = `${base}${path}?key=${encodeURIComponent(key)}`;
+    return fetch(url, { method: 'GET' });
+  }
+
+  async function apiPost(path, bodyObj){
+    const base = getApiBase();
+    const key = getTeamKey();
+    if (!base || !key) throw new Error('Missing server URL or TEAM_KEY');
+    const url = `${base}${path}`;
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-manual-key': key,
+      },
+      body: JSON.stringify(bodyObj || {}),
+    });
+  }
+
+  async function syncFromServer(){
+    const base = getApiBase();
+    const key = getTeamKey();
+    if (!base || !key) return;
+    const res = await apiGet('/api/manual-bookings');
     if (!res.ok) throw new Error('Sync failed: ' + res.status);
     const data = await res.json();
-    STORE = data.store || data || {};
+    STORE = data.store || {};
     saveStoreLocal();
   }
 
-  async function upsertToSheet(k, record){
-    const base = getScriptUrl();
+  async function upsertToServer(k, record){
+    const base = getApiBase();
     const key = getTeamKey();
-    if (!base || !key) return; // not configured
-    const res = await apiFetch('upsert', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: k, record })
-    });
+    if (!base || !key) return;
+    const res = await apiPost('/api/manual-bookings/upsert', { key: k, record });
     if (!res.ok) throw new Error('Upsert failed: ' + res.status);
   }
 
-  async function removeFromSheet(k){
-    const base = getScriptUrl();
+  async function removeFromServer(k){
+    const base = getApiBase();
     const key = getTeamKey();
     if (!base || !key) return;
-    const res = await apiFetch('remove', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: k })
-    });
+    const res = await apiPost('/api/manual-bookings/remove', { key: k });
     if (!res.ok) throw new Error('Remove failed: ' + res.status);
   }
 
@@ -264,7 +274,7 @@
     STORE[k] = { ...cur, ...patch, updated_at: new Date().toISOString() };
     saveStoreLocal();
     // Fire-and-forget sync
-    upsertToSheet(k, STORE[k]).catch(()=>{});
+    upsertToServer(k, STORE[k]).catch(()=>{});
   }
 
   function matchesFilter(state){
@@ -458,7 +468,7 @@
     STORE = loadStore();
     CACHE = await load();
     try{
-      await syncFromSheet();
+      await syncFromServer();
     }catch(e){
       // ignore if not configured
     }
@@ -636,7 +646,7 @@
         // best-effort push to sheet
         try{
           const entries = Object.entries(STORE);
-          await Promise.all(entries.slice(0, 50).map(([k,v]) => upsertToSheet(k,v)));
+          await Promise.all(entries.slice(0, 50).map(([k,v]) => upsertToServer(k,v)));
         }catch(e){}
         alert('Imported.');
         render(CACHE);
@@ -649,7 +659,7 @@
 
   document.getElementById('settings').addEventListener('click', () => {
     const cfg = loadConfig();
-    const scriptUrl = prompt('Apps Script Web App URL (ends with /exec):', cfg.scriptUrl || '');
+    const scriptUrl = prompt('MC server URL (cloudflared tunnel base, e.g. https://xxxx.trycloudflare.com):', cfg.scriptUrl || '');
     if (scriptUrl===null) return;
     const teamKey = prompt('Team key (shared with Jude):', cfg.teamKey || '');
     if (teamKey===null) return;
