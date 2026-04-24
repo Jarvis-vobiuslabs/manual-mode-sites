@@ -141,8 +141,10 @@
     </div>
 
     <div class="modal-body">
-      <label class="muted" style="font-size:12px">Meeting date & time</label>
-      <input class="field" id="mWhen" type="datetime-local" />
+      <div id="mWhenWrap">
+        <label class="muted" style="font-size:12px">Meeting date & time</label>
+        <input class="field" id="mWhen" type="datetime-local" />
+      </div>
 
       <div style="height:10px"></div>
       <label class="muted" style="font-size:12px">Website link (your demo/preview)</label>
@@ -166,11 +168,27 @@
     return leads;
   }
 
-  // In-memory session store (NOT saved to device). For persistence, use Export/Import.
+  // Simple in-app persistence (localStorage). Also supports Export/Import.
+  const STORE_KEY = 'manual_mode_store_v2';
   let STORE = {}; // key -> {state, meeting_at, website_url, updated_at}
 
   function leadKey(l){
     return (l.maps_url || `${l.name||''}|${l.phone||''}|${l.city||''}`).trim();
+  }
+
+  function loadStore(){
+    try{
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    }catch(e){
+      return {};
+    }
+  }
+
+  function saveStore(){
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(STORE)); }catch(e){}
   }
 
   function getStatus(l){
@@ -182,6 +200,7 @@
     const k=leadKey(l);
     const cur = STORE[k] || { state: 'active', meeting_at: '', website_url: '' };
     STORE[k] = { ...cur, ...patch, updated_at: new Date().toISOString() };
+    saveStore();
   }
 
   function matchesFilter(state){
@@ -276,7 +295,9 @@
                 <div class="row2">
                   <span class="chip"><span class="status">Meeting</span> · <span>${escapeHtml(st.meeting_at||'')}</span></span>
                 </div>
-                ${st.website_url ? `<div class="row2"><span class="chip">Site: <a href="${escapeHtml(st.website_url)}" target="_blank" rel="noopener">${escapeHtml(st.website_url)}</a></span></div>` : ''}
+                <div class="row2">
+                  <span class="chip">Website: ${st.website_url ? `<a href="${escapeHtml(st.website_url)}" target="_blank" rel="noopener">Open</a>` : `<span class="muted">(not set)</span>`}</span>
+                </div>
               </div>
               <div style="text-align:right">
                 <div style="font-weight:800">${escapeHtml(l.phone||'')}</div>
@@ -286,7 +307,8 @@
               ${l.maps_url ? `<a href="${l.maps_url}" target="_blank" rel="noopener">Maps</a>` : ''}
               ${l.phone ? `<a href="tel:${(l.phone||'').replace(/[^0-9+]/g,'')}">Call</a>` : ''}
               ${st.website_url ? `<a href="${escapeHtml(st.website_url)}" target="_blank" rel="noopener">Website</a>` : ''}
-              <button class="btn secondary mini" data-action="meeting" data-key="${escapeHtml(key)}">Edit</button>
+              <button class="btn secondary mini" data-action="meeting" data-key="${escapeHtml(key)}">Edit time</button>
+              <button class="btn secondary mini" data-action="website" data-key="${escapeHtml(key)}">Set website</button>
               <button class="btn danger mini" data-action="remove" data-key="${escapeHtml(key)}">Remove</button>
             </div>
           </div>
@@ -369,6 +391,7 @@
 
   let CACHE=[];
   async function boot(){
+    STORE = loadStore();
     CACHE = await load();
     render(CACHE);
   }
@@ -377,13 +400,14 @@
     return CACHE.find(l => leadKey(l) === key);
   }
 
-  function openMeetingModal(key){
+  function openMeetingModal(key, mode='all'){
     const l = findLeadByKey(key);
     if (!l) return;
     const st = getStatus(l);
 
     const modal = document.getElementById('meetingModal');
     modal.dataset.key = key;
+    modal.dataset.mode = mode;
     document.getElementById('mName').textContent = l.name || '';
     document.getElementById('mPhone').textContent = l.phone || '';
     document.getElementById('mPhone').href = l.phone ? `tel:${(l.phone||'').replace(/[^0-9+]/g,'')}` : '#';
@@ -396,6 +420,10 @@
 
     document.getElementById('mWebsite').value = st.website_url || '';
 
+    // mode controls
+    const whenWrap = document.getElementById('mWhenWrap');
+    whenWrap.style.display = (mode==='website') ? 'none' : 'block';
+
     modal.classList.add('open');
   }
 
@@ -406,15 +434,24 @@
   function saveMeetingFromModal(){
     const modal = document.getElementById('meetingModal');
     const key = modal.dataset.key;
+    const mode = modal.dataset.mode || 'all';
     const l = findLeadByKey(key);
     if (!l) return;
 
-    const dt = (document.getElementById('mWhen').value||'').trim();
     const website = (document.getElementById('mWebsite').value||'').trim();
+
+    if (mode==='website'){
+      const cur=getStatus(l);
+      setStatus(l, { website_url: website, state: cur.state });
+      closeMeetingModal();
+      render(CACHE);
+      return;
+    }
+
+    const dt = (document.getElementById('mWhen').value||'').trim();
 
     let meeting_at='';
     if (dt){
-      // dt: 2026-04-27T14:30
       const parts = dt.split('T');
       meeting_at = parts.length===2 ? `${parts[0]} ${parts[1]}` : dt;
     }
@@ -455,7 +492,14 @@
     }
 
     if (action==='meeting'){
-      openMeetingModal(key);
+      openMeetingModal(key,'all');
+      return;
+    }
+
+    if (action==='website'){
+      openMeetingModal(key,'website');
+      // focus website field
+      setTimeout(()=>document.getElementById('mWebsite')?.focus(), 50);
       return;
     }
 
@@ -519,6 +563,7 @@
       try{
         const parsed=JSON.parse(text);
         STORE = parsed.store || parsed || {};
+        saveStore();
         alert('Imported.');
         render(CACHE);
       }catch(e){
@@ -529,8 +574,9 @@
   });
 
   document.getElementById('reset').addEventListener('click', () => {
-    if (!confirm('Clear all booked/removed status in this session?')) return;
+    if (!confirm('Clear all booked/removed status?')) return;
     STORE = {};
+    try{ localStorage.removeItem(STORE_KEY); }catch(e){}
     render(CACHE);
   });
 
