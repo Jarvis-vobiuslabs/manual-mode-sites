@@ -182,11 +182,15 @@
     localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
   }
 
+  // Default to the current MC quick tunnel URL. If it changes, update here.
+  const DEFAULT_MC_BASE_URL = 'https://provisions-titans-villages-favourites.trycloudflare.com';
+
   function getMcBaseUrl(){
-    return (loadConfig().mcBaseUrl || '').trim().replace(/\/$/, '');
+    return (loadConfig().mcBaseUrl || DEFAULT_MC_BASE_URL).trim().replace(/\/$/, '');
   }
   function getTeamKey(){
-    return (loadConfig().teamKey || '').trim();
+    // No key required per Nathan
+    return '';
   }
 
   function leadKey(l){
@@ -210,36 +214,30 @@
 
   function getApiBase(){
     // Use MC tunnel base URL (e.g. https://xxxx.trycloudflare.com)
-    return (getScriptUrl() || '').replace(/\/$/, '');
+    return getMcBaseUrl();
   }
 
   async function apiGet(path){
     const base = getApiBase();
-    const key = getTeamKey();
-    if (!base || !key) throw new Error('Missing server URL or TEAM_KEY');
-    const url = `${base}${path}?key=${encodeURIComponent(key)}`;
+    if (!base) throw new Error('Missing server URL');
+    const url = `${base}${path}`;
     return fetch(url, { method: 'GET' });
   }
 
   async function apiPost(path, bodyObj){
     const base = getApiBase();
-    const key = getTeamKey();
-    if (!base || !key) throw new Error('Missing server URL or TEAM_KEY');
+    if (!base) throw new Error('Missing server URL');
     const url = `${base}${path}`;
     return fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-manual-key': key,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bodyObj || {}),
     });
   }
 
   async function syncFromServer(){
     const base = getApiBase();
-    const key = getTeamKey();
-    if (!base || !key) return;
+    if (!base) return;
     const res = await apiGet('/api/manual-bookings');
     if (!res.ok) throw new Error('Sync failed: ' + res.status);
     const data = await res.json();
@@ -249,16 +247,14 @@
 
   async function upsertToServer(k, record){
     const base = getApiBase();
-    const key = getTeamKey();
-    if (!base || !key) return;
+    if (!base) return;
     const res = await apiPost('/api/manual-bookings/upsert', { key: k, record });
     if (!res.ok) throw new Error('Upsert failed: ' + res.status);
   }
 
   async function removeFromServer(k){
     const base = getApiBase();
-    const key = getTeamKey();
-    if (!base || !key) return;
+    if (!base) return;
     const res = await apiPost('/api/manual-bookings/remove', { key: k });
     if (!res.ok) throw new Error('Remove failed: ' + res.status);
   }
@@ -659,11 +655,9 @@
 
   document.getElementById('settings').addEventListener('click', () => {
     const cfg = loadConfig();
-    const scriptUrl = prompt('MC server URL (cloudflared tunnel base, e.g. https://xxxx.trycloudflare.com):', cfg.scriptUrl || '');
-    if (scriptUrl===null) return;
-    const teamKey = prompt('Team key (shared with Jude):', cfg.teamKey || '');
-    if (teamKey===null) return;
-    saveConfig({ scriptUrl: (scriptUrl||'').trim(), teamKey: (teamKey||'').trim() });
+    const mcBaseUrl = prompt('MC server URL (cloudflared tunnel base):', cfg.mcBaseUrl || DEFAULT_MC_BASE_URL);
+    if (mcBaseUrl===null) return;
+    saveConfig({ mcBaseUrl: (mcBaseUrl||'').trim() });
     alert('Saved. Reloading sync…');
     boot();
   });
