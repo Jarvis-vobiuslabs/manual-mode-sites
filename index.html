@@ -15,6 +15,12 @@
     input{flex:1;min-width:220px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
     .btn{background:linear-gradient(135deg,var(--accent),#4dd3ff);border:none;color:#081021;font-weight:700;padding:10px 12px;border-radius:12px;cursor:pointer;white-space:nowrap}
     .btn.secondary{background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text)}
+    .btn.danger{background:rgba(255,90,90,.12);border:1px solid rgba(255,90,90,.28);color:#ffd1d1}
+    select{background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
+    .mini{font-size:12px;padding:8px 10px;border-radius:10px}
+    .muted{color:var(--muted)}
+    .field{background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
+    .field::-webkit-calendar-picker-indicator{filter:invert(1)}
     main{padding:18px}
     .card{background:rgba(18,26,43,.72);border:1px solid var(--border);border-radius:16px;padding:14px}
     table{width:100%;border-collapse:collapse;font-size:14px}
@@ -27,11 +33,16 @@
     /* Mobile: switch table → cards */
     .list{display:none;gap:12px}
     .lead-card{background:rgba(18,26,43,.72);border:1px solid var(--border);border-radius:16px;padding:14px}
+    .lead-card.booked{border-color:rgba(124,106,247,.45);box-shadow:0 0 0 1px rgba(124,106,247,.18) inset}
+    .lead-card.removed{opacity:.55}
     .lead-card .toprow{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
     .lead-card .name{font-weight:800}
     .lead-card .meta{color:var(--muted);font-size:12px;margin-top:4px}
-    .lead-card .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+    .lead-card .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center}
     .lead-card .actions a{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.04)}
+    .lead-card .row2{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center}
+    .chip{display:inline-flex;gap:8px;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid var(--border);font-size:12px;color:var(--muted)}
+    .status{font-weight:800;color:#eaf0ff}
 
     @media (max-width: 860px){
       main{padding:14px}
@@ -49,9 +60,16 @@
     <div class="sub">Businesses scraped from Google Maps with no website found. Click the Maps link to open the profile.</div>
     <div class="row">
       <input id="q" placeholder="Search (name, city, term)…" />
+      <select id="filter">
+        <option value="active">Active</option>
+        <option value="booked">Booked</option>
+        <option value="removed">Removed</option>
+        <option value="all">All</option>
+      </select>
       <button class="btn" id="reload">Reload</button>
       <button class="btn secondary" id="emailJude">Email Jude</button>
       <button class="btn secondary" id="copy">Copy</button>
+      <button class="btn danger" id="reset">Reset statuses</button>
       <span class="pill" id="count">0 leads</span>
     </div>
   </div>
@@ -66,8 +84,11 @@
             <th>Phone</th>
             <th>City</th>
             <th>Term</th>
+            <th>Status</th>
+            <th>Meeting</th>
             <th>Maps</th>
             <th>Added</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -86,11 +107,48 @@
     return leads;
   }
 
+  const STORE_KEY = 'manual_mode_status_v1';
+
+  function leadKey(l){
+    // stable enough across reloads
+    return (l.maps_url || `${l.name||''}|${l.phone||''}|${l.city||''}`).trim();
+  }
+
+  function loadStore(){
+    try{ return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); }catch(e){ return {}; }
+  }
+  function saveStore(store){
+    localStorage.setItem(STORE_KEY, JSON.stringify(store));
+  }
+
+  function getStatus(store, l){
+    const k=leadKey(l);
+    return store[k] || { state: 'active', meeting_at: '' };
+  }
+
+  function setStatus(store, l, patch){
+    const k=leadKey(l);
+    const cur = store[k] || { state: 'active', meeting_at: '' };
+    store[k] = { ...cur, ...patch, updated_at: new Date().toISOString() };
+    saveStore(store);
+  }
+
+  function matchesFilter(state){
+    const f = (document.getElementById('filter')?.value || 'active');
+    if (f==='all') return true;
+    return state===f;
+  }
+
   function getFiltered(leads){
     const q = (document.getElementById('q').value||'').toLowerCase().trim();
-    return !q ? leads : leads.filter(l => (
-      (l.name||'') + ' ' + (l.city||'') + ' ' + (l.term||'')
-    ).toLowerCase().includes(q));
+    const store = loadStore();
+    return leads.filter(l => {
+      const st = getStatus(store,l);
+      const hay = ((l.name||'') + ' ' + (l.city||'') + ' ' + (l.term||'')).toLowerCase();
+      const qok = !q || hay.includes(q);
+      const fok = matchesFilter(st.state);
+      return qok && fok;
+    });
   }
 
   function formatLeadLine(l){
@@ -105,42 +163,71 @@
   }
 
   function render(leads){
+    const store = loadStore();
     const filtered = getFiltered(leads);
 
-    document.getElementById('count').textContent = `${filtered.length} leads`;
+    // counts: show filtered + active totals
+    const activeCount = leads.filter(l => (getStatus(store,l).state || 'active')==='active').length;
+    const bookedCount = leads.filter(l => (getStatus(store,l).state || 'active')==='booked').length;
+    const removedCount = leads.filter(l => (getStatus(store,l).state || 'active')==='removed').length;
+    document.getElementById('count').textContent = `${filtered.length} shown · ${activeCount} active · ${bookedCount} booked · ${removedCount} removed`;
 
     // desktop table
     const rows = document.getElementById('rows');
-    rows.innerHTML = filtered.map(l => `
-      <tr>
-        <td><b>${escapeHtml(l.name||'')}</b></td>
-        <td>${escapeHtml(l.phone||'')}</td>
-        <td>${escapeHtml(l.city||'')}</td>
-        <td>${escapeHtml(l.term||'')}</td>
-        <td>${l.maps_url ? `<a href="${l.maps_url}" target="_blank" rel="noopener">Open</a>` : ''}</td>
-        <td>${escapeHtml(l.added_at||'')}</td>
-      </tr>
-    `).join('');
+    rows.innerHTML = filtered.map(l => {
+      const st = getStatus(store,l);
+      const key = leadKey(l);
+      const statusLabel = st.state==='booked' ? 'Booked' : (st.state==='removed' ? 'Removed' : 'Active');
+      return `
+        <tr data-key="${escapeHtml(key)}">
+          <td><b>${escapeHtml(l.name||'')}</b></td>
+          <td>${escapeHtml(l.phone||'')}</td>
+          <td>${escapeHtml(l.city||'')}</td>
+          <td>${escapeHtml(l.term||'')}</td>
+          <td>${escapeHtml(statusLabel)}</td>
+          <td>${st.meeting_at ? escapeHtml(st.meeting_at) : ''}</td>
+          <td>${l.maps_url ? `<a href="${l.maps_url}" target="_blank" rel="noopener">Open</a>` : ''}</td>
+          <td>${escapeHtml(l.added_at||'')}</td>
+          <td style="white-space:nowrap">
+            <button class="btn secondary mini" data-action="book" data-key="${escapeHtml(key)}">Booked</button>
+            <button class="btn secondary mini" data-action="meeting" data-key="${escapeHtml(key)}">Set time</button>
+            <button class="btn danger mini" data-action="remove" data-key="${escapeHtml(key)}">Remove</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
 
     // mobile cards
     const cards = document.getElementById('cards');
-    cards.innerHTML = filtered.map(l => `
-      <div class="lead-card">
-        <div class="toprow">
-          <div>
-            <div class="name">${escapeHtml(l.name||'')}</div>
-            <div class="meta">${escapeHtml(l.city||'')}${l.term ? ` · ${escapeHtml(l.term)}` : ''}</div>
+    cards.innerHTML = filtered.map(l => {
+      const st = getStatus(store,l);
+      const key = leadKey(l);
+      const statusLabel = st.state==='booked' ? 'Booked' : (st.state==='removed' ? 'Removed' : 'Active');
+      const cardClass = `lead-card ${st.state==='booked'?'booked':''} ${st.state==='removed'?'removed':''}`;
+      return `
+        <div class="${cardClass}" data-key="${escapeHtml(key)}">
+          <div class="toprow">
+            <div>
+              <div class="name">${escapeHtml(l.name||'')}</div>
+              <div class="meta">${escapeHtml(l.city||'')}${l.term ? ` · ${escapeHtml(l.term)}` : ''}</div>
+              <div class="row2">
+                <span class="chip"><span class="status">${escapeHtml(statusLabel)}</span>${st.meeting_at ? ` · <span>${escapeHtml(st.meeting_at)}</span>` : ''}</span>
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-weight:800">${escapeHtml(l.phone||'')}</div>
+            </div>
           </div>
-          <div style="text-align:right">
-            <div style="font-weight:800">${escapeHtml(l.phone||'')}</div>
+          <div class="actions">
+            ${l.maps_url ? `<a href="${l.maps_url}" target="_blank" rel="noopener">Maps</a>` : ''}
+            ${l.phone ? `<a href="tel:${(l.phone||'').replace(/[^0-9+]/g,'')}">Call</a>` : ''}
+            <button class="btn secondary mini" data-action="book" data-key="${escapeHtml(key)}">Booked</button>
+            <button class="btn secondary mini" data-action="meeting" data-key="${escapeHtml(key)}">Set time</button>
+            <button class="btn danger mini" data-action="remove" data-key="${escapeHtml(key)}">Remove</button>
           </div>
         </div>
-        <div class="actions">
-          ${l.maps_url ? `<a href="${l.maps_url}" target="_blank" rel="noopener">Maps</a>` : ''}
-          ${l.phone ? `<a href="tel:${(l.phone||'').replace(/[^0-9+]/g,'')}">Call</a>` : ''}
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   }
 
   function escapeHtml(s){
@@ -148,7 +235,13 @@
   }
 
   function buildEmailBody(leads){
-    const lines = leads.map((l,i)=>`${i+1}. ${formatLeadLine(l)}`);
+    const store = loadStore();
+    const lines = leads.map((l,i)=>{
+      const st=getStatus(store,l);
+      const status = st.state || 'active';
+      const when = st.meeting_at ? ` @ ${st.meeting_at}` : '';
+      return `${i+1}. [${status}${when}] ${formatLeadLine(l)}`;
+    });
     return [
       'Manual outreach leads (no website + phone):',
       '',
@@ -180,7 +273,43 @@
     render(CACHE);
   }
 
+  function findLeadByKey(key){
+    return CACHE.find(l => leadKey(l) === key);
+  }
+
+  function handleAction(action, key){
+    const l = findLeadByKey(key);
+    if (!l) return;
+    const store = loadStore();
+    const cur = getStatus(store,l);
+
+    if (action==='book'){
+      const next = cur.state==='booked' ? 'active' : 'booked';
+      setStatus(store,l,{ state: next });
+      render(CACHE);
+      return;
+    }
+
+    if (action==='remove'){
+      const next = cur.state==='removed' ? 'active' : 'removed';
+      setStatus(store,l,{ state: next, meeting_at: next==='removed' ? '' : cur.meeting_at });
+      render(CACHE);
+      return;
+    }
+
+    if (action==='meeting'){
+      const current = cur.meeting_at || '';
+      const input = prompt('Meeting date/time (e.g. 2026-04-24 14:30). Leave blank to clear:', current);
+      if (input===null) return;
+      const val = (input||'').trim();
+      setStatus(store,l,{ meeting_at: val, state: val ? 'booked' : (cur.state==='removed' ? 'removed' : 'active') });
+      render(CACHE);
+      return;
+    }
+  }
+
   document.getElementById('q').addEventListener('input', () => render(CACHE));
+  document.getElementById('filter').addEventListener('change', () => render(CACHE));
   document.getElementById('reload').addEventListener('click', boot);
   document.getElementById('copy').addEventListener('click', async () => {
     const filtered = getFiltered(CACHE);
@@ -191,6 +320,18 @@
     const subject = encodeURIComponent('Manual outreach leads (no website + phone)');
     const body = encodeURIComponent(buildEmailBody(filtered));
     window.location.href = `mailto:${encodeURIComponent(JUDE_EMAIL)}?subject=${subject}&body=${body}`;
+  });
+  document.getElementById('reset').addEventListener('click', () => {
+    if (!confirm('Reset all booked/removed statuses on this device?')) return;
+    localStorage.removeItem(STORE_KEY);
+    render(CACHE);
+  });
+
+  // Delegate clicks for action buttons
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action][data-key]');
+    if (!btn) return;
+    handleAction(btn.getAttribute('data-action'), btn.getAttribute('data-key'));
   });
 
   boot();
