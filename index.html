@@ -82,6 +82,7 @@
       <button class="btn" id="reload">Reload</button>
       <button class="btn secondary" id="emailJude">Email Jude</button>
       <button class="btn secondary" id="copy">Copy</button>
+      <button class="btn secondary" id="settings">Settings</button>
       <button class="btn secondary" id="export">Export</button>
       <button class="btn secondary" id="import">Import</button>
       <button class="btn danger" id="reset">Clear</button>
@@ -168,9 +169,25 @@
     return leads;
   }
 
-  // Simple in-app persistence (localStorage). Also supports Export/Import.
-  const STORE_KEY = 'manual_mode_store_v2';
+  // Shared storage via Google Sheets (Apps Script Web App)
+  // Configure by setting SCRIPT_URL + TEAM_KEY in the UI (saved on device).
+  const STORE_KEY = 'manual_mode_store_v3';
+  const CONFIG_KEY = 'manual_mode_config_v1';
   let STORE = {}; // key -> {state, meeting_at, website_url, updated_at}
+
+  function loadConfig(){
+    try{ return JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}'); }catch(e){ return {}; }
+  }
+  function saveConfig(cfg){
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+  }
+
+  function getScriptUrl(){
+    return (loadConfig().scriptUrl || '').trim();
+  }
+  function getTeamKey(){
+    return (loadConfig().teamKey || '').trim();
+  }
 
   function leadKey(l){
     return (l.maps_url || `${l.name||''}|${l.phone||''}|${l.city||''}`).trim();
@@ -187,8 +204,53 @@
     }
   }
 
-  function saveStore(){
+  function saveStoreLocal(){
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(STORE)); }catch(e){}
+  }
+
+  async function apiFetch(path, options){
+    const base = getScriptUrl();
+    const key = getTeamKey();
+    if (!base || !key) throw new Error('Missing SCRIPT_URL or TEAM_KEY');
+    const url = new URL(base);
+    url.searchParams.set('key', key);
+    url.searchParams.set('path', path);
+    return fetch(url.toString(), options);
+  }
+
+  async function syncFromSheet(){
+    const base = getScriptUrl();
+    const key = getTeamKey();
+    if (!base || !key) return; // not configured
+    const res = await apiFetch('list', { method: 'GET' });
+    if (!res.ok) throw new Error('Sync failed: ' + res.status);
+    const data = await res.json();
+    STORE = data.store || data || {};
+    saveStoreLocal();
+  }
+
+  async function upsertToSheet(k, record){
+    const base = getScriptUrl();
+    const key = getTeamKey();
+    if (!base || !key) return; // not configured
+    const res = await apiFetch('upsert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: k, record })
+    });
+    if (!res.ok) throw new Error('Upsert failed: ' + res.status);
+  }
+
+  async function removeFromSheet(k){
+    const base = getScriptUrl();
+    const key = getTeamKey();
+    if (!base || !key) return;
+    const res = await apiFetch('remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: k })
+    });
+    if (!res.ok) throw new Error('Remove failed: ' + res.status);
   }
 
   function getStatus(l){
@@ -200,7 +262,9 @@
     const k=leadKey(l);
     const cur = STORE[k] || { state: 'active', meeting_at: '', website_url: '' };
     STORE[k] = { ...cur, ...patch, updated_at: new Date().toISOString() };
-    saveStore();
+    saveStoreLocal();
+    // Fire-and-forget sync
+    upsertToSheet(k, STORE[k]).catch(()=>{});
   }
 
   function matchesFilter(state){
@@ -393,6 +457,11 @@
   async function boot(){
     STORE = loadStore();
     CACHE = await load();
+    try{
+      await syncFromSheet();
+    }catch(e){
+      // ignore if not configured
+    }
     render(CACHE);
   }
 
@@ -563,7 +632,12 @@
       try{
         const parsed=JSON.parse(text);
         STORE = parsed.store || parsed || {};
-        saveStore();
+        saveStoreLocal();
+        // best-effort push to sheet
+        try{
+          const entries = Object.entries(STORE);
+          await Promise.all(entries.slice(0, 50).map(([k,v]) => upsertToSheet(k,v)));
+        }catch(e){}
         alert('Imported.');
         render(CACHE);
       }catch(e){
@@ -573,10 +647,22 @@
     input.click();
   });
 
-  document.getElementById('reset').addEventListener('click', () => {
+  document.getElementById('settings').addEventListener('click', () => {
+    const cfg = loadConfig();
+    const scriptUrl = prompt('Apps Script Web App URL (ends with /exec):', cfg.scriptUrl || '');
+    if (scriptUrl===null) return;
+    const teamKey = prompt('Team key (shared with Jude):', cfg.teamKey || '');
+    if (teamKey===null) return;
+    saveConfig({ scriptUrl: (scriptUrl||'').trim(), teamKey: (teamKey||'').trim() });
+    alert('Saved. Reloading sync…');
+    boot();
+  });
+
+  document.getElementById('reset').addEventListener('click', async () => {
     if (!confirm('Clear all booked/removed status?')) return;
     STORE = {};
     try{ localStorage.removeItem(STORE_KEY); }catch(e){}
+    // Note: does not clear Google Sheet (intentional safety). Use a fresh sheet if needed.
     render(CACHE);
   });
 
