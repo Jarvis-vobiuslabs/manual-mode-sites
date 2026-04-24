@@ -44,12 +44,25 @@
     .chip{display:inline-flex;gap:8px;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid var(--border);font-size:12px;color:var(--muted)}
     .status{font-weight:800;color:#eaf0ff}
 
+    .bottom-nav{display:none}
+    .bottom-nav .navbtn{flex:1;background:rgba(18,26,43,.92);border:1px solid var(--border);color:var(--text);padding:12px 10px;font-weight:800}
+    .bottom-nav .navbtn.active{background:linear-gradient(135deg,var(--accent),#4dd3ff);color:#081021;border-color:transparent}
+
+    .modal{position:fixed;inset:0;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55);z-index:99;padding:18px}
+    .modal.open{display:flex}
+    .modal-card{width:min(640px, 100%);background:rgba(18,26,43,.96);border:1px solid var(--border);border-radius:18px;overflow:hidden}
+    .modal-h{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 14px;border-bottom:1px solid var(--border)}
+    .modal-body{padding:14px}
+    .modal-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px}
+
     @media (max-width: 860px){
       main{padding:14px}
       .card{padding:12px}
       table{display:none}
       .list{display:grid}
       input{min-width:160px}
+      .bottom-nav{position:fixed;left:0;right:0;bottom:0;display:flex;gap:10px;padding:10px;background:rgba(11,15,25,.85);backdrop-filter:blur(10px);border-top:1px solid var(--border)}
+      body{padding-bottom:86px}
     }
   </style>
 </head>
@@ -69,13 +82,21 @@
       <button class="btn" id="reload">Reload</button>
       <button class="btn secondary" id="emailJude">Email Jude</button>
       <button class="btn secondary" id="copy">Copy</button>
-      <button class="btn danger" id="reset">Reset statuses</button>
+      <button class="btn secondary" id="export">Export</button>
+      <button class="btn secondary" id="import">Import</button>
+      <button class="btn danger" id="reset">Clear</button>
       <span class="pill" id="count">0 leads</span>
     </div>
   </div>
 </header>
 <main>
   <div class="wrap">
+    <!-- View selector (used by bottom nav on mobile) -->
+    <select id="view" style="display:none">
+      <option value="leads">Leads</option>
+      <option value="bookings">Bookings</option>
+    </select>
+
     <div class="card">
       <table>
         <thead>
@@ -95,9 +116,47 @@
       </table>
 
       <div class="list" id="cards"></div>
+      <div class="list" id="bookings"></div>
     </div>
   </div>
 </main>
+
+<!-- Mobile bottom nav -->
+<nav class="bottom-nav" aria-label="Navigation">
+  <button class="navbtn" id="navLeads" type="button">Leads</button>
+  <button class="navbtn" id="navBookings" type="button">Bookings</button>
+</nav>
+
+<!-- Meeting modal -->
+<div class="modal" id="meetingModal" role="dialog" aria-modal="true" aria-label="Set meeting">
+  <div class="modal-card">
+    <div class="modal-h">
+      <div>
+        <div style="font-weight:900">Set meeting</div>
+        <div class="muted" style="font-size:12px;margin-top:4px">
+          <span id="mName"></span> · <a id="mPhone" class="muted" href="#" style="text-decoration:underline"></a>
+        </div>
+      </div>
+      <button class="btn secondary mini" id="mClose" type="button">Close</button>
+    </div>
+
+    <div class="modal-body">
+      <label class="muted" style="font-size:12px">Meeting date & time</label>
+      <input class="field" id="mWhen" type="datetime-local" />
+
+      <div style="height:10px"></div>
+      <label class="muted" style="font-size:12px">Website link (your demo/preview)</label>
+      <input class="field" id="mWebsite" type="url" placeholder="https://..." />
+
+      <div class="modal-actions">
+        <button class="btn secondary" id="mClear" type="button">Clear</button>
+        <button class="btn secondary" id="mCancel" type="button">Cancel</button>
+        <button class="btn" id="mSave" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   const JUDE_EMAIL = 'Judesteeg65@gmail.com';
 
@@ -107,30 +166,22 @@
     return leads;
   }
 
-  const STORE_KEY = 'manual_mode_status_v1';
+  // In-memory session store (NOT saved to device). For persistence, use Export/Import.
+  let STORE = {}; // key -> {state, meeting_at, website_url, updated_at}
 
   function leadKey(l){
-    // stable enough across reloads
     return (l.maps_url || `${l.name||''}|${l.phone||''}|${l.city||''}`).trim();
   }
 
-  function loadStore(){
-    try{ return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); }catch(e){ return {}; }
-  }
-  function saveStore(store){
-    localStorage.setItem(STORE_KEY, JSON.stringify(store));
+  function getStatus(l){
+    const k=leadKey(l);
+    return STORE[k] || { state: 'active', meeting_at: '', website_url: '' };
   }
 
-  function getStatus(store, l){
+  function setStatus(l, patch){
     const k=leadKey(l);
-    return store[k] || { state: 'active', meeting_at: '' };
-  }
-
-  function setStatus(store, l, patch){
-    const k=leadKey(l);
-    const cur = store[k] || { state: 'active', meeting_at: '' };
-    store[k] = { ...cur, ...patch, updated_at: new Date().toISOString() };
-    saveStore(store);
+    const cur = STORE[k] || { state: 'active', meeting_at: '', website_url: '' };
+    STORE[k] = { ...cur, ...patch, updated_at: new Date().toISOString() };
   }
 
   function matchesFilter(state){
@@ -141,14 +192,17 @@
 
   function getFiltered(leads){
     const q = (document.getElementById('q').value||'').toLowerCase().trim();
-    const store = loadStore();
     return leads.filter(l => {
-      const st = getStatus(store,l);
+      const st = getStatus(l);
       const hay = ((l.name||'') + ' ' + (l.city||'') + ' ' + (l.term||'')).toLowerCase();
       const qok = !q || hay.includes(q);
       const fok = matchesFilter(st.state);
       return qok && fok;
     });
+  }
+
+  function getBooked(leads){
+    return leads.filter(l => getStatus(l).state==='booked');
   }
 
   function formatLeadLine(l){
@@ -163,19 +217,18 @@
   }
 
   function render(leads){
-    const store = loadStore();
     const filtered = getFiltered(leads);
 
     // counts: show filtered + active totals
-    const activeCount = leads.filter(l => (getStatus(store,l).state || 'active')==='active').length;
-    const bookedCount = leads.filter(l => (getStatus(store,l).state || 'active')==='booked').length;
-    const removedCount = leads.filter(l => (getStatus(store,l).state || 'active')==='removed').length;
-    document.getElementById('count').textContent = `${filtered.length} shown · ${activeCount} active · ${bookedCount} booked · ${removedCount} removed`;
+    const activeCount = leads.filter(l => (getStatus(l).state || 'active')==='active').length;
+    const bookedCount = leads.filter(l => (getStatus(l).state || 'active')==='booked').length;
+    const removedCount = leads.filter(l => (getStatus(l).state || 'active')==='removed').length;
+    document.getElementById('count').textContent = `${filtered.length} shown · ${activeCount} active · ${bookedCount} booked · ${removedCount} removed` + (Object.keys(STORE).length ? '' : ' · (no saved state)');
 
     // desktop table
     const rows = document.getElementById('rows');
     rows.innerHTML = filtered.map(l => {
-      const st = getStatus(store,l);
+      const st = getStatus(l);
       const key = leadKey(l);
       const statusLabel = st.state==='booked' ? 'Booked' : (st.state==='removed' ? 'Removed' : 'Active');
       return `
@@ -197,10 +250,57 @@
       `;
     }).join('');
 
-    // mobile cards
+    const view = (document.getElementById('view')?.value || 'leads');
+
+    // mobile cards (leads)
     const cards = document.getElementById('cards');
+    const bookings = document.getElementById('bookings');
+
+    if (view === 'bookings'){
+      cards.style.display = 'none';
+      bookings.style.display = 'grid';
+      const booked = getBooked(leads).sort((a,b)=>{
+        const sa=(getStatus(a).meeting_at||'');
+        const sb=(getStatus(b).meeting_at||'');
+        return sa.localeCompare(sb);
+      });
+      bookings.innerHTML = booked.map(l => {
+        const st=getStatus(l);
+        const key=leadKey(l);
+        return `
+          <div class="lead-card booked" data-key="${escapeHtml(key)}">
+            <div class="toprow">
+              <div>
+                <div class="name">${escapeHtml(l.name||'')}</div>
+                <div class="meta">${escapeHtml(l.city||'')}${l.term ? ` · ${escapeHtml(l.term)}` : ''}</div>
+                <div class="row2">
+                  <span class="chip"><span class="status">Meeting</span> · <span>${escapeHtml(st.meeting_at||'')}</span></span>
+                </div>
+                ${st.website_url ? `<div class="row2"><span class="chip">Site: <a href="${escapeHtml(st.website_url)}" target="_blank" rel="noopener">${escapeHtml(st.website_url)}</a></span></div>` : ''}
+              </div>
+              <div style="text-align:right">
+                <div style="font-weight:800">${escapeHtml(l.phone||'')}</div>
+              </div>
+            </div>
+            <div class="actions">
+              ${l.maps_url ? `<a href="${l.maps_url}" target="_blank" rel="noopener">Maps</a>` : ''}
+              ${l.phone ? `<a href="tel:${(l.phone||'').replace(/[^0-9+]/g,'')}">Call</a>` : ''}
+              ${st.website_url ? `<a href="${escapeHtml(st.website_url)}" target="_blank" rel="noopener">Website</a>` : ''}
+              <button class="btn secondary mini" data-action="meeting" data-key="${escapeHtml(key)}">Edit</button>
+              <button class="btn danger mini" data-action="remove" data-key="${escapeHtml(key)}">Remove</button>
+            </div>
+          </div>
+        `;
+      }).join('') || `<div class="muted">No booked meetings yet.</div>`;
+      return;
+    }
+
+    // leads view
+    cards.style.display = 'grid';
+    bookings.style.display = 'none';
+
     cards.innerHTML = filtered.map(l => {
-      const st = getStatus(store,l);
+      const st = getStatus(l);
       const key = leadKey(l);
       const statusLabel = st.state==='booked' ? 'Booked' : (st.state==='removed' ? 'Removed' : 'Active');
       const cardClass = `lead-card ${st.state==='booked'?'booked':''} ${st.state==='removed'?'removed':''}`;
@@ -235,12 +335,12 @@
   }
 
   function buildEmailBody(leads){
-    const store = loadStore();
     const lines = leads.map((l,i)=>{
-      const st=getStatus(store,l);
+      const st=getStatus(l);
       const status = st.state || 'active';
       const when = st.meeting_at ? ` @ ${st.meeting_at}` : '';
-      return `${i+1}. [${status}${when}] ${formatLeadLine(l)}`;
+      const site = st.website_url ? ` · site: ${st.website_url}` : '';
+      return `${i+1}. [${status}${when}] ${formatLeadLine(l)}${site}`;
     });
     return [
       'Manual outreach leads (no website + phone):',
@@ -277,39 +377,112 @@
     return CACHE.find(l => leadKey(l) === key);
   }
 
+  function openMeetingModal(key){
+    const l = findLeadByKey(key);
+    if (!l) return;
+    const st = getStatus(l);
+
+    const modal = document.getElementById('meetingModal');
+    modal.dataset.key = key;
+    document.getElementById('mName').textContent = l.name || '';
+    document.getElementById('mPhone').textContent = l.phone || '';
+    document.getElementById('mPhone').href = l.phone ? `tel:${(l.phone||'').replace(/[^0-9+]/g,'')}` : '#';
+
+    // best-effort convert stored "YYYY-MM-DD HH:mm" to datetime-local
+    const input = document.getElementById('mWhen');
+    const cur = (st.meeting_at||'').trim();
+    const m = cur.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+    input.value = m ? `${m[1]}T${m[2]}` : '';
+
+    document.getElementById('mWebsite').value = st.website_url || '';
+
+    modal.classList.add('open');
+  }
+
+  function closeMeetingModal(){
+    document.getElementById('meetingModal').classList.remove('open');
+  }
+
+  function saveMeetingFromModal(){
+    const modal = document.getElementById('meetingModal');
+    const key = modal.dataset.key;
+    const l = findLeadByKey(key);
+    if (!l) return;
+
+    const dt = (document.getElementById('mWhen').value||'').trim();
+    const website = (document.getElementById('mWebsite').value||'').trim();
+
+    let meeting_at='';
+    if (dt){
+      // dt: 2026-04-27T14:30
+      const parts = dt.split('T');
+      meeting_at = parts.length===2 ? `${parts[0]} ${parts[1]}` : dt;
+    }
+
+    setStatus(l, { meeting_at, website_url: website, state: meeting_at ? 'booked' : 'active' });
+    closeMeetingModal();
+    render(CACHE);
+  }
+
+  function clearMeetingFromModal(){
+    const modal = document.getElementById('meetingModal');
+    const key = modal.dataset.key;
+    const l = findLeadByKey(key);
+    if (!l) return;
+    const st=getStatus(l);
+    setStatus(l, { meeting_at: '', website_url: '', state: st.state==='removed' ? 'removed' : 'active' });
+    closeMeetingModal();
+    render(CACHE);
+  }
+
   function handleAction(action, key){
     const l = findLeadByKey(key);
     if (!l) return;
-    const store = loadStore();
-    const cur = getStatus(store,l);
+    const cur = getStatus(l);
 
     if (action==='book'){
       const next = cur.state==='booked' ? 'active' : 'booked';
-      setStatus(store,l,{ state: next });
+      setStatus(l,{ state: next });
       render(CACHE);
       return;
     }
 
     if (action==='remove'){
       const next = cur.state==='removed' ? 'active' : 'removed';
-      setStatus(store,l,{ state: next, meeting_at: next==='removed' ? '' : cur.meeting_at });
+      setStatus(l,{ state: next, meeting_at: next==='removed' ? '' : cur.meeting_at, website_url: next==='removed' ? '' : (cur.website_url||'') });
       render(CACHE);
       return;
     }
 
     if (action==='meeting'){
-      const current = cur.meeting_at || '';
-      const input = prompt('Meeting date/time (e.g. 2026-04-24 14:30). Leave blank to clear:', current);
-      if (input===null) return;
-      const val = (input||'').trim();
-      setStatus(store,l,{ meeting_at: val, state: val ? 'booked' : (cur.state==='removed' ? 'removed' : 'active') });
+      openMeetingModal(key);
+      return;
+    }
+
+    if (action==='booking'){
+      // jump to bookings view (mobile)
+      document.getElementById('view').value = 'bookings';
       render(CACHE);
+      window.scrollTo({top:0,behavior:'smooth'});
       return;
     }
   }
 
   document.getElementById('q').addEventListener('input', () => render(CACHE));
   document.getElementById('filter').addEventListener('change', () => render(CACHE));
+  // view selector is hidden on desktop; used by bottom mobile nav
+  document.getElementById('view').addEventListener('change', () => render(CACHE));
+
+  function setView(v){
+    document.getElementById('view').value = v;
+    document.getElementById('navLeads').classList.toggle('active', v==='leads');
+    document.getElementById('navBookings').classList.toggle('active', v==='bookings');
+    render(CACHE);
+  }
+  document.getElementById('navLeads').addEventListener('click', ()=> setView('leads'));
+  document.getElementById('navBookings').addEventListener('click', ()=> setView('bookings'));
+  // init
+  setView('leads');
   document.getElementById('reload').addEventListener('click', boot);
   document.getElementById('copy').addEventListener('click', async () => {
     const filtered = getFiltered(CACHE);
@@ -321,9 +494,43 @@
     const body = encodeURIComponent(buildEmailBody(filtered));
     window.location.href = `mailto:${encodeURIComponent(JUDE_EMAIL)}?subject=${subject}&body=${body}`;
   });
+  function download(filename, text){
+    const a=document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], {type:'application/json'}));
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 200);
+  }
+
+  document.getElementById('export').addEventListener('click', () => {
+    const payload = { exported_at: new Date().toISOString(), store: STORE };
+    download('manual-mode-bookings.json', JSON.stringify(payload, null, 2));
+  });
+
+  document.getElementById('import').addEventListener('click', async () => {
+    const input=document.createElement('input');
+    input.type='file';
+    input.accept='application/json';
+    input.onchange = async () => {
+      const file=input.files?.[0];
+      if (!file) return;
+      const text=await file.text();
+      try{
+        const parsed=JSON.parse(text);
+        STORE = parsed.store || parsed || {};
+        alert('Imported.');
+        render(CACHE);
+      }catch(e){
+        alert('Invalid JSON.');
+      }
+    };
+    input.click();
+  });
+
   document.getElementById('reset').addEventListener('click', () => {
-    if (!confirm('Reset all booked/removed statuses on this device?')) return;
-    localStorage.removeItem(STORE_KEY);
+    if (!confirm('Clear all booked/removed status in this session?')) return;
+    STORE = {};
     render(CACHE);
   });
 
@@ -332,6 +539,15 @@
     const btn = e.target.closest('button[data-action][data-key]');
     if (!btn) return;
     handleAction(btn.getAttribute('data-action'), btn.getAttribute('data-key'));
+  });
+
+  // Meeting modal
+  document.getElementById('mClose').addEventListener('click', closeMeetingModal);
+  document.getElementById('mCancel').addEventListener('click', closeMeetingModal);
+  document.getElementById('mSave').addEventListener('click', saveMeetingFromModal);
+  document.getElementById('mClear').addEventListener('click', clearMeetingFromModal);
+  document.getElementById('meetingModal').addEventListener('click', (e) => {
+    if (e.target.id==='meetingModal') closeMeetingModal();
   });
 
   boot();
